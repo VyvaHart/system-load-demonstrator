@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Load Shifter Configurator</title>
+    <link rel="stylesheet" type="text/css" href="../static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Load Shifter Configuration</h1>
+        <p>Configure the parameters below and click "Generate Load" to simulate different types of system load.</p>
+
+        <form action="/load" method="GET" id="loadForm">
+            <label for="mode">Mode:</label>
+            <select id="mode" name="mode">
+                <option value="balanced" selected>Balanced</option>
+                <option value="cpu_heavy">CPU Heavy</option>
+                <option value="memory_heavy">Memory Heavy</option>
+                <option value="io_heavy">I/O Heavy</option>
+            </select>
+
+            <label for="iterations">Iterations (general purpose):</label>
+            <input type="number" id="iterations" name="iterations" value="10" min="1">
+
+            <label for="data_size_mb">Data Size (MB for Memory/IO):</label>
+            <input type="number" id="data_size_mb" name="data_size_mb" value="1" min="1">
+
+            <label for="cpu_algorithm">CPU Algorithm:</label>
+            <select id="cpu_algorithm" name="cpu_algorithm">
+                <option value="fibonacci" selected>Fibonacci</option>
+                <option value="prime_factorization">Prime Factorization</option>
+                <option value="hashing">Hashing</option>
+                <option value="noop">No-Op (Minimal CPU)</option>
+            </select>
+
+            <label for="cpu_task_scale">CPU Task Scale (e.g., N for Fibonacci):</label>
+            <input type="number" id="cpu_task_scale" name="cpu_task_scale" value="30" min="1">
+
+            <div class="overrides-group">
+                <h2>Optional Overrides:</h2>
+                <label for="force_cpu">
+                    <input type="checkbox" id="force_cpu" name="force_cpu" value="true"> Force CPU Load
+                </label>
+                <label for="force_memory">
+                    <input type="checkbox" id="force_memory" name="force_memory" value="true"> Force Memory Load
+                </label>
+                <label for="force_io">
+                    <input type="checkbox" id="force_io" name="force_io" value="true"> Force I/O Load
+                </label>
+            </div>
+            <br>
+            <input type="submit" value="Generate Load">
+        </form>
+
+        <a href="/metrics" class="metrics-link" target="_blank">View Prometheus Metrics</a>
+
+        <h2>Results:</h2>
+        <div id="resultsArea" class="results">
+            Submit the form to see results here.
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('loadForm').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            const formData = new FormData(this);
+            const params = new URLSearchParams(formData).toString();
+            const resultsArea = document.getElementById('resultsArea');
+            resultsArea.textContent = 'Generating load, please wait...';
+
+            try {
+                const response = await fetch(`/load?${params}`);
+                if (!response.ok) {
+                    const errorData = await response.text(); // error details
+                    throw new Error(`HTTP error! status: ${response.status}, message: ${errorData}`);
+                }
+                const data = await response.json();
+                resultsArea.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                resultsArea.textContent = `Error: ${error.message}\nCould not fetch results. Check the console.`;
+                console.error('Error fetching load results:', error);
+            }
+        });
+    </script>
+</body>
+</html>
