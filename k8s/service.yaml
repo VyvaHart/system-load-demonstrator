@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: load-shifter-service
+  labels:
+    app: load-shifter
+spec:
+  selector:
+    app: load-shifter
+  ports:
+    - protocol: TCP
+      port: 80 # Port the service listens on within the cluster
+      targetPort: 5000 # Flask app port
+  type: NodePort

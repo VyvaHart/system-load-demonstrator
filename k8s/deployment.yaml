@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: system-load-shifter
+  labels:
+    app: system-load-shifter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: system-load-shifter
+  template:
+    metadata:
+      labels:
+        app: system-load-shifter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: system-load-shifter
+          image: ghcr.io/vyvahart/system-load-shifter:latest
+          ports:
+            - containerPort: 5000
+          imagePullPolicy: Always
