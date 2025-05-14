@@ -18,6 +18,8 @@ spec:
         prometheus.io/port: "5000"
         prometheus.io/path: "/metrics"
     spec:
+      imagePullSecrets:
+      - name: ghcr-secret
       containers:
         - name: system-load-shifter
           image: ghcr.io/vyvahart/system-load-demonstrator:latest
