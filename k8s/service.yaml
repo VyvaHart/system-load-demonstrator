@@ -3,10 +3,10 @@ kind: Service
 metadata:
   name: load-shifter-service
   labels:
-    app: system-load-shifter
+    app: system-load-demonstrator
 spec:
   selector:
-    app: system-load-shifter
+    app: system-load-demonstrator
   ports:
     - protocol: TCP
       port: 80 # Port the service listens on within the cluster
