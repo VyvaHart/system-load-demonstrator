@@ -1,6 +1,14 @@
+from flask import Flask, request, jsonify, render_template
+from prometheus_flask_exporter import PrometheusMetrics
 import hashlib
 import os
 import tempfile
+import time
+
+app = Flask(__name__)
+metrics = PrometheusMetrics(app)
+metrics.info('app_info', 'System Load Application', version='1.0.0')
+
 
 # --- CPU Algorithms ---
 
@@ -31,8 +39,9 @@ def prime_factorization(n):
 
 def perform_hashing(data, iterations):
     s = hashlib.sha256()
+    data_bytes = data.encode('utf-8') if isinstance(data, str) else data
     for _ in range(iterations):
-        s.update(data.encode('utf-8') if isinstance(data, str) else data)
+            s.update(data_bytes)
     return s.hexdigest()
 
 
@@ -75,4 +84,100 @@ def perform_io(size_mb, iterations):
             os.remove(temp_path)
     return f"Wrote {written_bytes / (1024*1024):.2f} MB, Read {read_bytes_total / (1024*1024):.2f} MB"
 
-print(perform_io(20, 40))
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/load', methods=['GET'])
+def generate_load():
+    mode = request.args.get('mode', 'balanced')
+    iterations = int(request.args.get('iterations', '10'))
+    data_size_mb = int(request.args.get('data_size_mb', '1'))
+    cpu_algorithm = request.args.get('cpu_algorithm', 'fibonacci')
+    cpu_task_scale = int(request.args.get('cpu_task_scale', '30'))
+
+    # Handle checkbox values for overrides
+    force_cpu = request.args.get('force_cpu') == 'true'
+    force_memory = request.args.get('force_memory') == 'true'
+    force_io = request.args.get('force_io') == 'true'
+
+    results = {}
+    start_time = time.time()
+    allocated_memory_holder = None
+
+    # --- Memory Allocation ---
+    if mode == 'memory_heavy' or force_memory or (mode == 'balanced' and not (force_cpu or force_io)):
+        try:
+            allocated_memory_holder = consume_memory(data_size_mb)
+            results['memory_info'] = f"Allocated approx {data_size_mb}MB. String length: {len(allocated_memory_holder)}"
+        except MemoryError:
+            results['memory_info'] = f"MemoryError: Could not allocate {data_size_mb}MB."
+        except Exception as e:
+            results['memory_info'] = f"Error during memory allocation: {str(e)}"
+
+
+    # --- CPU Work ---
+    if mode == 'cpu_heavy' or force_cpu or (mode == 'balanced' and not (force_memory or force_io)):
+        cpu_result = "CPU task not run or no algorithm selected."
+        try:
+            if cpu_algorithm == 'fibonacci':
+                fib_val = "N/A"
+                if cpu_task_scale > 38 and iterations > 1: # Heuristic for switching to iterative for very high N combined with general iterations
+                    # Use general iterations for iterative, cpu_task_scale is N
+                    temp_fib_results = []
+                    for i in range(iterations):
+                        temp_fib_results.append(fibonacci_iterative(cpu_task_scale + i)) # Vary N slightly
+                    fib_val = f"Iterative results for N around {cpu_task_scale} (last: {temp_fib_results[-1] if temp_fib_results else 'N/A'})"
+                else: # Use recursive for smaller N or single iteration focus
+                    fib_val = fibonacci_recursive(cpu_task_scale)
+                cpu_result = f"Fibonacci({cpu_task_scale}): {fib_val}"
+            elif cpu_algorithm == 'prime_factorization':
+                factors_summary = []
+                for i in range(iterations): # Factorize 'iterations' numbers
+                    num_to_factor = cpu_task_scale + i # Vary the number slightly
+                    factors = prime_factorization(num_to_factor)
+                    if i == iterations -1 : # Only store last for summary to save space in response
+                         factors_summary.append({num_to_factor: factors})
+                cpu_result = f"Prime factorization for {iterations} numbers around {cpu_task_scale}. Last: {factors_summary}"
+            elif cpu_algorithm == 'hashing':
+                # Create some data to hash based on data_size_mb but don't hold it (focus on CPU)
+                # Use a smaller amount of data but hash it many times
+                sample_data_for_hash = "s" * (1024 * 256) # 256KB of 's'
+                actual_hash_iterations = iterations * (data_size_mb * 4 if data_size_mb > 0 else 100) # Scale hash iterations
+                hash_val = perform_hashing(sample_data_for_hash, actual_hash_iterations)
+                cpu_result = f"Hashed {len(sample_data_for_hash)/1024}KB data {actual_hash_iterations} times. Hash: ...{hash_val[-8:]}"
+            elif cpu_algorithm == 'noop':
+                time.sleep(0.001 * iterations)
+                cpu_result = "No-op CPU work."
+        except Exception as e:
+            cpu_result = f"Error during CPU task ({cpu_algorithm}): {str(e)}"
+        results['cpu_work'] = cpu_result
+
+    # --- I/O Work ---
+    if mode == 'io_heavy' or force_io or (mode == 'balanced' and not (force_cpu or force_memory)):
+        try:
+            # Use 'iterations' to control number of read/write cycles for the 'data_size_mb' file
+            io_info = perform_io(data_size_mb, iterations)
+            results['io_info'] = io_info
+        except Exception as e:
+            results['io_info'] = f"Error during I/O task: {str(e)}"
+
+
+    end_time = time.time()
+    results['duration_seconds'] = round(end_time - start_time, 4)
+    results['parameters_used'] = {
+        "mode": mode, "iterations": iterations, "data_size_mb": data_size_mb,
+        "cpu_algorithm": cpu_algorithm, "cpu_task_scale": cpu_task_scale,
+        "force_cpu": force_cpu, "force_memory": force_memory, "force_io": force_io
+    }
+
+
+    if allocated_memory_holder:
+        del allocated_memory_holder
+
+    return jsonify(results)
+
+if __name__ == '__main__':
+    # For local dev:
+    app.run(host='0.0.0.0', port=5000, debug=True)
