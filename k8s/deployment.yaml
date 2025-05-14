@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: system-load-shifter
-          image: ghcr.io/VyvaHart/system-load-demostrator:latest
+          image: ghcr.io/VyvaHart/system-load-demonstrator:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 5000
