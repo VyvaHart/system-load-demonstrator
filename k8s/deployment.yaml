@@ -1,18 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: system-load-shifter
+  name: system-load-demonstrator
   labels:
-    app: system-load-shifter
+    app: system-load-demonstrator
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: system-load-shifter
+      app: system-load-demonstrator
   template:
     metadata:
       labels:
-        app: system-load-shifter
+        app: system-load-demonstrator
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "5000"
