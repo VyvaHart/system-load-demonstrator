@@ -1,17 +1,17 @@
 from flask import Flask, request, jsonify, render_template, current_app
 from prometheus_flask_exporter import PrometheusMetrics
 from prometheus_client import generate_latest, CollectorRegistry, CONTENT_TYPE_LATEST
+from flask import Response
 import time
 import hashlib
 import os
 import tempfile
 
 
-metrics = PrometheusMetrics()
 app = Flask(__name__)
 print(f"GUNICORN_WORKER_DEBUG: Flask app object created: {app}")
 
-metrics.init_app(app)
+metrics = PrometheusMetrics(app)
 print(f"GUNICORN_WORKER_DEBUG: PrometheusMetrics initialized on app via init_app: {app}")
 metrics.info('app_info', 'System Load Application', version='1.0.0-dev')
 print(f"GUNICORN_WORKER_DEBUG: app.url_map after metrics init: {str(app.url_map)}")
@@ -26,17 +26,17 @@ print(f"GUNICORN_WORKER_DEBUG: app.url_map after metrics init: {str(app.url_map)
 
 # metrics.info('app_info', 'System Load Application', version='1.0.0-dev')
 
-@app.route('/metrics', endpoint='prometheus_metrics') # Explicitly set endpoint name
-def custom_handler_for_library_endpoint_name():
-    print("DEV_DEBUG: Custom handler for 'prometheus_metrics' endpoint NAME was called!")
-    try:
-        from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, REGISTRY
-        # Use the default registry, as that's what .info() would have used
-        output = generate_latest(REGISTRY)
-        return Response(output, mimetype=CONTENT_TYPE_LATEST)
-    except Exception as e:
-        print(f"DEV_DEBUG: Error in custom_handler_for_library_endpoint_name: {e}")
-        return f"Error in custom handler: {e}", 500
+# @app.route('/metrics', endpoint='prometheus_metrics') # Explicitly set endpoint name
+# def custom_handler_for_library_endpoint_name():
+#     print("DEV_DEBUG: Custom handler for 'prometheus_metrics' endpoint NAME was called!")
+#     try:
+#         from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, REGISTRY
+#         # Use the default registry, as that's what .info() would have used
+#         output = generate_latest(REGISTRY)
+#         return Response(output, mimetype=CONTENT_TYPE_LATEST)
+#     except Exception as e:
+#         print(f"DEV_DEBUG: Error in custom_handler_for_library_endpoint_name: {e}")
+#         return f"Error in custom handler: {e}", 500
 
 print(f"DEV_DEBUG: App's registered view functions: {app.view_functions}")
 if 'prometheus_metrics' in app.view_functions:
@@ -216,23 +216,15 @@ def generate_load():
 
 @app.route('/manual_metrics_test')
 def manual_metrics_test():
-    print("DEV_DEBUG: /manual_metrics_test endpoint hit!")
+    print("GUNICORN_WORKER_DEBUG: /manual_metrics_test endpoint hit!")
     try:
-        registry_to_use = getattr(metrics, 'registry', CollectorRegistry())
-        if hasattr(metrics,'registry'):
-            print(f"DEV_DEBUG: Using exporter's registry: {metrics.registry}")
-        else:
-             print(f"DEV_DEBUG: Exporter's registry not found, using default prometheus_client.REGISTRY")
-             registry_to_use = CollectorRegistry()
-        output = generate_latest(CollectorRegistry(auto_describe=True))
-
-        print(f"DEV_DEBUG: Generated metrics output length: {len(output)}")
+        from prometheus_client import REGISTRY
+        output = generate_latest(REGISTRY)
+        print(f"GUNICORN_WORKER_DEBUG: Generated metrics output length from REGISTRY: {len(output)}")
         return Response(output, mimetype=CONTENT_TYPE_LATEST)
     except Exception as e:
-        print(f"DEV_DEBUG: Error in /manual_metrics_test: {e}")
+        print(f"GUNICORN_WORKER_DEBUG: Error in /manual_metrics_test: {e}")
         return f"Error generating metrics: {e}", 500
-
-from flask import Response
 
 
 if __name__ == '__main__':
