@@ -1,12 +1,12 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: load-shifter-service
+  name: load-shifter-dev-service
   labels:
     app: system-load-demonstrator
 spec:
   selector:
-    app: system-load-demonstrator
+    app: system-load-demonstrator-dev
   ports:
     - protocol: TCP
       port: 80 # Port the service listens on within the cluster

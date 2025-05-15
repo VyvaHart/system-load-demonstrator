@@ -1,18 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: system-load-demonstrator
+  name: system-load-demonstrator-dev
   labels:
-    app: system-load-demonstrator
+    app: system-load-demonstrator-dev
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: system-load-demonstrator
+      app: system-load-demonstrator-dev
   template:
     metadata:
       labels:
-        app: system-load-demonstrator
+        app: system-load-demonstrator-dev
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "5000"
@@ -21,8 +21,8 @@ spec:
       imagePullSecrets:
       - name: ghcr-secret
       containers:
-        - name: system-load-shifter
-          image: ghcr.io/vyvahart/system-load-demonstrator:latest
+        - name: system-load-shifter-dev-container
+          image: ghcr.io/vyvahart/system-load-demonstrator:dev
           ports:
             - containerPort: 5000
           imagePullPolicy: Always

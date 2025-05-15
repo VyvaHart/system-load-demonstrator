@@ -1,0 +1,95 @@
+name: Build Dev Image and Provide Instructions
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}
+
+jobs:
+  build-and-push-dev-ghcr:
+    name: Build Dev image and push to GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Dev Docker image
+        id: meta_dev
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch # This will create a tag like 'dev'
+            type=sha,format=short # This will create a tag like 'a1b2c3d'
+
+      - name: Build and push Dev Docker image to GHCR
+        id: build_dev_image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta_dev.outputs.tags }}
+          labels: ${{ steps.meta_dev.outputs.labels }}
+
+  provide-dev-deployment-instructions:
+    name: Provide Minikube Dev Deployment Instructions
+    runs-on: ubuntu-latest
+    needs: build-and-push-dev-ghcr
+
+    steps:
+      - name: Display Manual Dev Deployment Instructions
+        run: |
+          echo "---------------------------------------------------------------------"
+          echo "✅ DEV Docker image successfully built and pushed to GHCR!"
+          echo ""
+          echo "Image Base Name: ${{ env.IMAGE_NAME }}"
+          echo "Pushed tags for this dev build (example): ${{ env.IMAGE_NAME }}:dev, ${{ env.IMAGE_NAME }}:${{ github.sha_short }}"
+          echo "(Check GHCR for the exact list of tags pushed by this run)"
+          echo ""
+          echo "👉 To deploy THIS DEV IMAGE to your LOCAL Minikube for testing:"
+          echo "---------------------------------------------------------------------"
+          echo "1. Ensure Minikube is running."
+          echo ""
+          echo "2. Create a NEW deployment YAML (e.g., k8s/deployment-dev.yaml) or temporarily modify your existing k8s/deployment.yaml."
+          echo "   Update the 'image:' field to point to one of THIS dev image's specific tags:"
+          echo "     Option A (using the branch tag): image: ${{ env.IMAGE_NAME }}:dev"
+          echo "     Option B (using the commit SHA tag for precision): image: ${{ env.IMAGE_NAME }}:${{ github.sha_short }}"
+          echo "     imagePullPolicy: Always # Or IfNotPresent, especially for SHA tags"
+          echo ""
+          echo "   If creating a new deployment YAML (e.g., k8s/deployment-dev.yaml), give it a unique name and labels (e.g., system-load-demonstrator-dev)."
+          echo ""
+          echo "3. If your GHCR package is private, ensure you have an imagePullSecret and reference it in your (dev) deployment YAML."
+          echo ""
+          echo "4. Apply your (dev) Kubernetes deployment manifest to Minikube."
+          echo "   kubectl apply -f k8s/deployment-dev.yaml  # Or your modified deployment.yaml"
+          echo ""
+          echo "5. Accessing the dev pod (choose one):"
+          echo "   a) If you created a new K8s Deployment & Service for dev: Use 'minikube service <your-dev-service-name>'"
+          echo "   b) Port-forward directly to the dev pod (simpler for quick tests):"
+          echo "      kubectl get pods -l app=system-load-demonstrator-dev # Adjust label if you used a different one for dev"
+          echo "      kubectl port-forward <dev-pod-name> 5001:5000"
+          echo "      Then access http://localhost:5001 in your browser."
+          echo ""
+          echo "6. Check the status and logs of your dev deployment/pod."
+          echo "   kubectl get pods -l app=system-load-demonstrator-dev -w # Adjust label"
+          echo "   kubectl logs <dev-pod-name>"
+          echo "---------------------------------------------------------------------"
