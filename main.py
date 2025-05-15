@@ -9,16 +9,37 @@ import tempfile
 
 app = Flask(__name__)
 print(f"DEV_DEBUG: Flask app object before metrics: {app}")
+# metrics = PrometheusMetrics(app)
+# print(f"DEV_DEBUG: PrometheusMetrics object: {metrics}")
+# print(f"DEV_DEBUG: App's registered view functions: {app.view_functions}")
+# if 'prometheus_metrics' in app.view_functions:
+#     print(f"DEV_DEBUG: '/metrics' rule found, mapped to: {app.view_functions['prometheus_metrics']}")
+# else:
+#     print("DEV_DEBUG: '/metrics' rule NOT FOUND in app.view_functions!")
+# print(f"DEV_DEBUG: Full URL Map:\n{str(app.url_map)}")
+
+# metrics.info('app_info', 'System Load Application', version='1.0.0-dev')
+
+@app.route('/metrics', endpoint='prometheus_metrics') # Explicitly set endpoint name
+def custom_handler_for_library_endpoint_name():
+    print("DEV_DEBUG: Custom handler for 'prometheus_metrics' endpoint NAME was called!")
+    try:
+        from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, REGISTRY
+        # Use the default registry, as that's what .info() would have used
+        output = generate_latest(REGISTRY)
+        return Response(output, mimetype=CONTENT_TYPE_LATEST)
+    except Exception as e:
+        print(f"DEV_DEBUG: Error in custom_handler_for_library_endpoint_name: {e}")
+        return f"Error in custom handler: {e}", 500
+    
 metrics = PrometheusMetrics(app)
-print(f"DEV_DEBUG: PrometheusMetrics object: {metrics}")
+
 print(f"DEV_DEBUG: App's registered view functions: {app.view_functions}")
 if 'prometheus_metrics' in app.view_functions:
     print(f"DEV_DEBUG: '/metrics' rule found, mapped to: {app.view_functions['prometheus_metrics']}")
 else:
     print("DEV_DEBUG: '/metrics' rule NOT FOUND in app.view_functions!")
 print(f"DEV_DEBUG: Full URL Map:\n{str(app.url_map)}")
-
-metrics.info('app_info', 'System Load Application', version='1.0.0-dev')
 
 
 # --- CPU Algorithms ---
