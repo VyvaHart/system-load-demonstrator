@@ -7,8 +7,14 @@ import os
 import tempfile
 
 
+metrics = PrometheusMetrics()
 app = Flask(__name__)
-print(f"DEV_DEBUG: Flask app object before metrics: {app}")
+print(f"GUNICORN_WORKER_DEBUG: Flask app object created: {app}")
+
+metrics.init_app(app)
+print(f"GUNICORN_WORKER_DEBUG: PrometheusMetrics initialized on app via init_app: {app}")
+metrics.info('app_info', 'System Load Application', version='1.0.0-dev')
+print(f"GUNICORN_WORKER_DEBUG: app.url_map after metrics init: {str(app.url_map)}")
 # metrics = PrometheusMetrics(app)
 # print(f"DEV_DEBUG: PrometheusMetrics object: {metrics}")
 # print(f"DEV_DEBUG: App's registered view functions: {app.view_functions}")
@@ -31,8 +37,6 @@ def custom_handler_for_library_endpoint_name():
     except Exception as e:
         print(f"DEV_DEBUG: Error in custom_handler_for_library_endpoint_name: {e}")
         return f"Error in custom handler: {e}", 500
-    
-metrics = PrometheusMetrics(app)
 
 print(f"DEV_DEBUG: App's registered view functions: {app.view_functions}")
 if 'prometheus_metrics' in app.view_functions:
