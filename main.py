@@ -1,53 +1,16 @@
-from flask import Flask, request, jsonify, render_template, current_app
+from flask import Flask, request, jsonify, render_template, Response
 from prometheus_flask_exporter import PrometheusMetrics
-from prometheus_client import generate_latest, CollectorRegistry, CONTENT_TYPE_LATEST
-from flask import Response
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 import time
 import hashlib
 import os
 import tempfile
 
-
 app = Flask(__name__)
-print(f"GUNICORN_WORKER_DEBUG: Flask app object created: {app}")
-
 metrics = PrometheusMetrics(app)
-print(f"GUNICORN_WORKER_DEBUG: PrometheusMetrics initialized on app via init_app: {app}")
 metrics.info('app_info', 'System Load Application', version='1.0.0-dev')
-print(f"GUNICORN_WORKER_DEBUG: app.url_map after metrics init: {str(app.url_map)}")
-# metrics = PrometheusMetrics(app)
-# print(f"DEV_DEBUG: PrometheusMetrics object: {metrics}")
-# print(f"DEV_DEBUG: App's registered view functions: {app.view_functions}")
-# if 'prometheus_metrics' in app.view_functions:
-#     print(f"DEV_DEBUG: '/metrics' rule found, mapped to: {app.view_functions['prometheus_metrics']}")
-# else:
-#     print("DEV_DEBUG: '/metrics' rule NOT FOUND in app.view_functions!")
-# print(f"DEV_DEBUG: Full URL Map:\n{str(app.url_map)}")
-
-# metrics.info('app_info', 'System Load Application', version='1.0.0-dev')
-
-# @app.route('/metrics', endpoint='prometheus_metrics') # Explicitly set endpoint name
-# def custom_handler_for_library_endpoint_name():
-#     print("DEV_DEBUG: Custom handler for 'prometheus_metrics' endpoint NAME was called!")
-#     try:
-#         from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, REGISTRY
-#         # Use the default registry, as that's what .info() would have used
-#         output = generate_latest(REGISTRY)
-#         return Response(output, mimetype=CONTENT_TYPE_LATEST)
-#     except Exception as e:
-#         print(f"DEV_DEBUG: Error in custom_handler_for_library_endpoint_name: {e}")
-#         return f"Error in custom handler: {e}", 500
-
-print(f"DEV_DEBUG: App's registered view functions: {app.view_functions}")
-if 'prometheus_metrics' in app.view_functions:
-    print(f"DEV_DEBUG: '/metrics' rule found, mapped to: {app.view_functions['prometheus_metrics']}")
-else:
-    print("DEV_DEBUG: '/metrics' rule NOT FOUND in app.view_functions!")
-print(f"DEV_DEBUG: Full URL Map:\n{str(app.url_map)}")
-
 
 # --- CPU Algorithms ---
-
 def fibonacci_recursive(n):
     if n <= 1:
         return n
@@ -77,49 +40,45 @@ def perform_hashing(data, iterations):
     s = hashlib.sha256()
     data_bytes = data.encode('utf-8') if isinstance(data, str) else data
     for _ in range(iterations):
-            s.update(data_bytes)
+        s.update(data_bytes)
     return s.hexdigest()
 
-
 # --- Memory Operations ---
-
 def consume_memory(size_mb):
-    # Create a large list of random strings (or numbers)
-    # I use strings of 'x' for simplicity.
     num_chars = size_mb * 1024 * 1024
     large_string = 'x' * num_chars
-    # Return to keep it in memory during the request
     return large_string
-
 
 # --- I/O Operations ---
 def perform_io(size_mb, iterations):
-    data_chunk = os.urandom(1024 * 1024) # 1MB chunk
+    data_chunk = os.urandom(1024 * 1024)
     bytes_to_write = size_mb * 1024 * 1024
     written_bytes = 0
     read_bytes_total = 0
 
-    for _ in range(iterations): # Multiple read/write cycless
-        fd, temp_path = tempfile.mkstemp()
+    io_iterations = max(1, iterations)
+
+    for _ in range(io_iterations):
+        fd, temp_path = tempfile.mkstemp(prefix="loadapp_", suffix=".tmp")
         try:
             with os.fdopen(fd, 'wb') as tmp:
-                current_written = 0
-                while current_written < bytes_to_write:
-                    write_size = min(len(data_chunk), bytes_to_write - current_written)
+                current_written_for_file = 0
+                while current_written_for_file < bytes_to_write:
+                    write_size = min(len(data_chunk), bytes_to_write - current_written_for_file)
                     tmp.write(data_chunk[:write_size])
-                    current_written += write_size
-            written_bytes += current_written
+                    current_written_for_file += write_size
+            written_bytes += current_written_for_file
 
             with open(temp_path, 'rb') as tmp_read:
                 while True:
-                    chunk = tmp_read.read(1024 * 1024) # Read in 1MB chunks
+                    chunk = tmp_read.read(1024 * 1024)
                     if not chunk:
                         break
                     read_bytes_total += len(chunk)
         finally:
-            os.remove(temp_path)
-    return f"Wrote {written_bytes / (1024*1024):.2f} MB, Read {read_bytes_total / (1024*1024):.2f} MB"
-
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+    return f"Wrote {written_bytes / (1024*1024):.2f} MB, Read {read_bytes_total / (1024*1024):.2f} MB in {io_iterations} cycle(s)."
 
 @app.route('/')
 def index():
@@ -133,7 +92,6 @@ def generate_load():
     cpu_algorithm = request.args.get('cpu_algorithm', 'fibonacci')
     cpu_task_scale = int(request.args.get('cpu_task_scale', '30'))
 
-    # Handle checkbox values for overrides
     force_cpu = request.args.get('force_cpu') == 'true'
     force_memory = request.args.get('force_memory') == 'true'
     force_io = request.args.get('force_io') == 'true'
@@ -141,64 +99,57 @@ def generate_load():
     results = {}
     start_time = time.time()
     allocated_memory_holder = None
+    io_info_msg = "I/O task not run or no method selected."
+    cpu_result_msg = "CPU task not run or no algorithm selected."
+    memory_info_msg = "Memory allocation task not run."
 
-    # --- Memory Allocation ---
+
     if mode == 'memory_heavy' or force_memory or (mode == 'balanced' and not (force_cpu or force_io)):
         try:
             allocated_memory_holder = consume_memory(data_size_mb)
-            results['memory_info'] = f"Allocated approx {data_size_mb}MB. String length: {len(allocated_memory_holder)}"
+            memory_info_msg = f"Allocated approx {data_size_mb}MB. String length: {len(allocated_memory_holder)}"
         except MemoryError:
-            results['memory_info'] = f"MemoryError: Could not allocate {data_size_mb}MB."
+            memory_info_msg = f"MemoryError: Could not allocate {data_size_mb}MB."
         except Exception as e:
-            results['memory_info'] = f"Error during memory allocation: {str(e)}"
+            memory_info_msg = f"Error during memory allocation: {str(e)}"
+    results['memory_info'] = memory_info_msg
 
-
-    # --- CPU Work ---
     if mode == 'cpu_heavy' or force_cpu or (mode == 'balanced' and not (force_memory or force_io)):
-        cpu_result = "CPU task not run or no algorithm selected."
         try:
             if cpu_algorithm == 'fibonacci':
                 fib_val = "N/A"
-                if cpu_task_scale > 38 and iterations > 1: # Heuristic for switching to iterative for very high N combined with general iterations
-                    # Use general iterations for iterative, cpu_task_scale is N
-                    temp_fib_results = []
-                    for i in range(iterations):
-                        temp_fib_results.append(fibonacci_iterative(cpu_task_scale + i)) # Vary N slightly
+                if cpu_task_scale > 38 and iterations > 1:
+                    temp_fib_results = [fibonacci_iterative(cpu_task_scale + i) for i in range(iterations)]
                     fib_val = f"Iterative results for N around {cpu_task_scale} (last: {temp_fib_results[-1] if temp_fib_results else 'N/A'})"
-                else: # Use recursive for smaller N or single iteration focus
+                else:
                     fib_val = fibonacci_recursive(cpu_task_scale)
-                cpu_result = f"Fibonacci({cpu_task_scale}): {fib_val}"
+                cpu_result_msg = f"Fibonacci({cpu_task_scale}): {fib_val}"
             elif cpu_algorithm == 'prime_factorization':
-                factors_summary = []
-                for i in range(iterations): # Factorize 'iterations' numbers
-                    num_to_factor = cpu_task_scale + i # Vary the number slightly
+                last_factors = None
+                for i in range(iterations):
+                    num_to_factor = cpu_task_scale + i
                     factors = prime_factorization(num_to_factor)
-                    if i == iterations -1 : # Only store last for summary to save space in response
-                         factors_summary.append({num_to_factor: factors})
-                cpu_result = f"Prime factorization for {iterations} numbers around {cpu_task_scale}. Last: {factors_summary}"
+                    if i == iterations - 1:
+                        last_factors = {num_to_factor: factors}
+                cpu_result_msg = f"Prime factorization for {iterations} numbers around {cpu_task_scale}. Last: {last_factors}"
             elif cpu_algorithm == 'hashing':
-                # Create some data to hash based on data_size_mb but don't hold it (focus on CPU)
-                # Use a smaller amount of data but hash it many times
-                sample_data_for_hash = "s" * (1024 * 256) # 256KB of 's'
-                actual_hash_iterations = iterations * (data_size_mb * 4 if data_size_mb > 0 else 100) # Scale hash iterations
+                sample_data_for_hash = "s" * (1024 * 256)
+                actual_hash_iterations = iterations * (data_size_mb * 4 if data_size_mb > 0 else 100)
                 hash_val = perform_hashing(sample_data_for_hash, actual_hash_iterations)
-                cpu_result = f"Hashed {len(sample_data_for_hash)/1024}KB data {actual_hash_iterations} times. Hash: ...{hash_val[-8:]}"
+                cpu_result_msg = f"Hashed {len(sample_data_for_hash)/1024}KB data {actual_hash_iterations} times. Hash: ...{hash_val[-8:]}"
             elif cpu_algorithm == 'noop':
                 time.sleep(0.001 * iterations)
-                cpu_result = "No-op CPU work."
+                cpu_result_msg = "No-op CPU work."
         except Exception as e:
-            cpu_result = f"Error during CPU task ({cpu_algorithm}): {str(e)}"
-        results['cpu_work'] = cpu_result
+            cpu_result_msg = f"Error during CPU task ({cpu_algorithm}): {str(e)}"
+    results['cpu_work'] = cpu_result_msg
 
-    # --- I/O Work ---
     if mode == 'io_heavy' or force_io or (mode == 'balanced' and not (force_cpu or force_memory)):
         try:
-            # Use 'iterations' to control number of read/write cycles for the 'data_size_mb' file
-            io_info = perform_io(data_size_mb, iterations)
-            results['io_info'] = io_info
+            io_info_msg = perform_io(data_size_mb, iterations)
         except Exception as e:
-            results['io_info'] = f"Error during I/O task: {str(e)}"
-
+            io_info_msg = f"Error during I/O task: {str(e)}"
+    results['io_info'] = io_info_msg
 
     end_time = time.time()
     results['duration_seconds'] = round(end_time - start_time, 4)
@@ -208,7 +159,6 @@ def generate_load():
         "force_cpu": force_cpu, "force_memory": force_memory, "force_io": force_io
     }
 
-
     if allocated_memory_holder:
         del allocated_memory_holder
 
@@ -216,16 +166,13 @@ def generate_load():
 
 @app.route('/manual_metrics_test')
 def manual_metrics_test():
-    print("GUNICORN_WORKER_DEBUG: /manual_metrics_test endpoint hit!")
     try:
         from prometheus_client import REGISTRY
         output = generate_latest(REGISTRY)
-        print(f"GUNICORN_WORKER_DEBUG: Generated metrics output length from REGISTRY: {len(output)}")
         return Response(output, mimetype=CONTENT_TYPE_LATEST)
     except Exception as e:
-        print(f"GUNICORN_WORKER_DEBUG: Error in /manual_metrics_test: {e}")
-        return f"Error generating metrics: {e}", 500
-
+        return f"Error generating metrics in /manual_metrics_test: {e}", 500
 
 if __name__ == '__main__':
+    # This block is for local development
     app.run(host='0.0.0.0', port=5000, debug=True)
