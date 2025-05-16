@@ -9,4 +9,4 @@ COPY . .
 
 EXPOSE 5000
 
-CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:5000", "main:app"]
+CMD ["gunicorn", "--workers", "2", "--bind", "0.0.0.0:5000", "--timeout", "60", "main:app"]
