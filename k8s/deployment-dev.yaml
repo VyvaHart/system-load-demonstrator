@@ -23,6 +23,9 @@ spec:
       containers:
         - name: system-load-shifter-dev-container
           image: ghcr.io/vyvahart/system-load-demonstrator:dev
+          imagePullPolicy: Always
           ports:
             - containerPort: 5000
-          imagePullPolicy: Always
+          env:
+            - name: PROMETHEUS_MULTIPROC_DIR
+              value: /tmp/prometheus_multiproc_dir
