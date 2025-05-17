@@ -8,15 +8,15 @@ import tempfile
 
 app = Flask(__name__)
 
-metrics = GunicornPrometheusMetrics(app, group_by='url_rule')
+metrics = GunicornPrometheusMetrics(app, group_by='url_rule', register_app_info=True)
+metrics.info('app_info', 'System Load Application Gunicorn', version='1.0.8-gunicorn-final')
+print(f"FINAL_DEBUG: Flask app: {app}")
+print(f"FINAL_DEBUG: GunicornPrometheusMetrics on app: {metrics}")
+print(f"FINAL_DEBUG: app.url_map: {str(app.url_map)}")
 
-print(f"DEBUG: Flask app object created: {app}")
-print(f"DEBUG: GunicornPrometheusMetrics initialized on app: {app}")
-metrics.info('app_info_gunicorn', 'System Load Application - Gunicorn Metrics', version='1.0.7-gunicorn')
-print(f"DEBUG: app.url_map after GunicornPrometheusMetrics init: {str(app.url_map)}")
+CUSTOM_REQUESTS_COUNTER = Counter('custom_requests_total_app_final', 'Total custom requests for app routes final', ['path'])
+CUSTOM_REQUEST_DURATION_HISTOGRAM = Histogram('custom_request_duration_seconds_app_final', 'Custom request duration histogram final', ['path'])
 
-CUSTOM_REQUESTS_COUNTER = Counter('custom_requests_total_app_g', 'Total custom requests for app routes (gunicorn)', ['path'])
-CUSTOM_REQUEST_DURATION_HISTOGRAM = Histogram('custom_request_duration_seconds_app_g', 'Custom request duration histogram (gunicorn)', ['path'])
 
 def fibonacci_recursive(n):
     if n <= 1: return n
@@ -64,14 +64,14 @@ def index():
     CUSTOM_REQUESTS_COUNTER.labels(path="/").inc()
     with CUSTOM_REQUEST_DURATION_HISTOGRAM.labels(path="/").time():
         pass
-    print("DEBUG: Route / hit")
+    print("FINAL_DEBUG: Route / hit")
     return render_template('index.html')
 
 @app.route('/load', methods=['GET'])
 def generate_load():
     CUSTOM_REQUESTS_COUNTER.labels(path="/load").inc()
     request_start_time = time.time()
-    print("DEBUG: Route /load hit")
+    print("FINAL_DEBUG: Route /load hit")
     mode = request.args.get('mode', 'balanced')
     iterations = int(request.args.get('iterations', '10'))
     data_size_mb = int(request.args.get('data_size_mb', '1'))
@@ -132,7 +132,7 @@ def generate_load():
 
 @app.route('/manual_metrics_test')
 def manual_metrics_test():
-    print("DEBUG: /manual_metrics_test endpoint hit!")
+    print("FINAL_DEBUG: /manual_metrics_test endpoint hit!")
     try:
         output = generate_latest(REGISTRY)
         return Response(output, mimetype=CONTENT_TYPE_LATEST)
