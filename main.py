@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify, render_template, Response
 from prometheus_flask_exporter import PrometheusMetrics
+
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, REGISTRY, Counter, Histogram
 import time
 import hashlib
@@ -7,10 +8,21 @@ import os
 import tempfile
 import logging
 
+app = Flask(__name__)
+app.logger.setLevel(logging.DEBUG)
+app.logger.info(f"APP_LOGGER: Flask app object created: {app}")
 
-metrics_exporter = PrometheusMetrics(register_app_info=False)
-CUSTOM_REQUESTS_COUNTER = Counter('custom_requests_total_app_f2', 'Total custom requests (factory2)', ['path'])
-CUSTOM_REQUEST_DURATION_HISTOGRAM = Histogram('custom_request_duration_seconds_app_f2', 'Custom request duration (factory2)', ['path'])
+try:
+    metrics = PrometheusMetrics(app, group_by='url_rule', register_app_info=True)
+    app.logger.info(f"APP_LOGGER: PrometheusMetrics(app) initialized successfully.")
+    metrics.info('app_info_direct_final', 'System Load App - Direct Init Final', version='1.1.3-directfinal')
+    app.logger.info(f"APP_LOGGER: app.url_map after metrics init: {str(app.url_map)}")
+except Exception as e:
+    app.logger.error(f"APP_LOGGER: ERROR during PrometheusMetrics(app) initialization: {e}", exc_info=True)
+
+# Custom Metrics
+CUSTOM_REQUESTS_COUNTER = Counter('custom_requests_total_app_direct', 'Total custom requests (direct_init)', ['path'])
+CUSTOM_REQUEST_DURATION_HISTOGRAM = Histogram('custom_request_duration_seconds_app_direct', 'Custom request duration (direct_init)', ['path'])
 
 def fibonacci_recursive(n):
     if n <= 1: return n
@@ -54,100 +66,87 @@ def perform_io(size_mb, iterations):
     return f"Wrote {written_bytes / (1024*1024):.2f} MB, Read {read_bytes_total / (1024*1024):.2f} MB in {io_iterations} cycle(s)."
 
 
-def create_app():
-    app = Flask(__name__)
-    app.logger.setLevel(logging.DEBUG)
-    app.logger.info(f"FACTORY_V2_LOGGER: Flask app created by factory: {app}")
+@app.route('/')
+def index():
+    CUSTOM_REQUESTS_COUNTER.labels(path="/").inc()
+    with CUSTOM_REQUEST_DURATION_HISTOGRAM.labels(path="/").time():
+        pass
+    app.logger.info("APP_LOGGER: Route / hit")
+    return render_template('index.html')
 
-    @app.route('/')
-    def index():
-        CUSTOM_REQUESTS_COUNTER.labels(path="/").inc()
-        with CUSTOM_REQUEST_DURATION_HISTOGRAM.labels(path="/").time():
-            pass
-        app.logger.info("FACTORY_V2_LOGGER: Route / hit")
-        return render_template('index.html')
+@app.route('/load', methods=['GET'])
+def generate_load():
+    CUSTOM_REQUESTS_COUNTER.labels(path="/load").inc()
+    request_start_time = time.time()
+    app.logger.info("APP_LOGGER: Route /load hit")
+    mode = request.args.get('mode', 'balanced')
+    iterations = int(request.args.get('iterations', '10'))
+    data_size_mb = int(request.args.get('data_size_mb', '1'))
+    cpu_algorithm = request.args.get('cpu_algorithm', 'fibonacci')
+    cpu_task_scale = int(request.args.get('cpu_task_scale', '30'))
+    force_cpu = request.args.get('force_cpu') == 'true'
+    force_memory = request.args.get('force_memory') == 'true'
+    force_io = request.args.get('force_io') == 'true'
+    results = {}
+    internal_processing_start_time = time.time()
+    allocated_memory_holder = None
+    io_info_msg = "I/O task not run."
+    cpu_result_msg = "CPU task not run."
+    memory_info_msg = "Memory task not run."
 
-    @app.route('/load', methods=['GET'])
-    def generate_load():
-        CUSTOM_REQUESTS_COUNTER.labels(path="/load").inc()
-        request_start_time = time.time()
-        app.logger.info("FACTORY_V2_LOGGER: Route /load hit")
-        mode = request.args.get('mode', 'balanced')
-        iterations = int(request.args.get('iterations', '10'))
-        data_size_mb = int(request.args.get('data_size_mb', '1'))
-        cpu_algorithm = request.args.get('cpu_algorithm', 'fibonacci')
-        cpu_task_scale = int(request.args.get('cpu_task_scale', '30'))
-        force_cpu = request.args.get('force_cpu') == 'true'
-        force_memory = request.args.get('force_memory') == 'true'
-        force_io = request.args.get('force_io') == 'true'
-        results = {}
-        internal_processing_start_time = time.time()
-        allocated_memory_holder = None
-        io_info_msg = "I/O task not run."
-        cpu_result_msg = "CPU task not run."
-        memory_info_msg = "Memory task not run."
-
-        if mode == 'memory_heavy' or force_memory or (mode == 'balanced' and not (force_cpu or force_io)):
-            try:
-                allocated_memory_holder = consume_memory(data_size_mb)
-                memory_info_msg = f"Allocated approx {data_size_mb}MB. String length: {len(allocated_memory_holder)}"
-            except Exception as e: memory_info_msg = f"Error memory: {str(e)}"
-        results['memory_info'] = memory_info_msg
-
-        if mode == 'cpu_heavy' or force_cpu or (mode == 'balanced' and not (force_memory or force_io)):
-            try:
-                if cpu_algorithm == 'fibonacci':
-                    fib_val = fibonacci_recursive(cpu_task_scale) if not(cpu_task_scale > 38 and iterations > 1) else \
-                                [fibonacci_iterative(cpu_task_scale + i) for i in range(iterations)][-1]
-                    cpu_result_msg = f"Fibonacci({cpu_task_scale}): {fib_val}"
-                elif cpu_algorithm == 'prime_factorization':
-                    last_factors = None 
-                    for i in range(iterations): 
-                        num_to_factor = cpu_task_scale + i
-                        current_factors = prime_factorization(num_to_factor)
-                        if i == iterations -1 : 
-                            last_factors = {num_to_factor: current_factors}
-                    cpu_result_msg = f"Prime factorization for {iterations} numbers around {cpu_task_scale}. Last: {last_factors}"
-                elif cpu_algorithm == 'hashing':
-                    hash_val = perform_hashing("s"*(1024*256), iterations * (data_size_mb*4 if data_size_mb > 0 else 100))
-                    cpu_result_msg = f"Hashed data. Hash: ...{hash_val[-8:]}"
-                elif cpu_algorithm == 'noop': time.sleep(0.001 * iterations); cpu_result_msg = "No-op CPU."
-            except Exception as e: cpu_result_msg = f"Error CPU ({cpu_algorithm}): {str(e)}"
-        results['cpu_work'] = cpu_result_msg
-
-        if mode == 'io_heavy' or force_io or (mode == 'balanced' and not (force_cpu or force_memory)):
-            try: io_info_msg = perform_io(data_size_mb, iterations)
-            except Exception as e: results['io_info'] = f"Error I/O: {str(e)}"
-        results['io_info'] = io_info_msg
-        
-        internal_processing_duration = time.time() - internal_processing_start_time
-        CUSTOM_REQUEST_DURATION_HISTOGRAM.labels(path="/load").observe(internal_processing_duration)
-
-        results['duration_seconds'] = round(time.time() - request_start_time, 4)
-        results['parameters_used'] = {"mode":mode, "iterations":iterations, "data_size_mb":data_size_mb, \
-                                        "cpu_algorithm":cpu_algorithm, "cpu_task_scale":cpu_task_scale, \
-                                        "force_cpu":force_cpu, "force_memory":force_memory, "force_io":force_io}
-        if allocated_memory_holder: del allocated_memory_holder
-        return jsonify(results)
-
-    @app.route('/manual_metrics_test')
-    def manual_metrics_test():
-        app.logger.info("FACTORY_V2_LOGGER: /manual_metrics_test endpoint hit!")
+    if mode == 'memory_heavy' or force_memory or (mode == 'balanced' and not (force_cpu or force_io)):
         try:
-            output = generate_latest(REGISTRY)
-            return Response(output, mimetype=CONTENT_TYPE_LATEST)
-        except Exception as e:
-            return f"Error generating metrics in /manual_metrics_test: {e}", 500
+            allocated_memory_holder = consume_memory(data_size_mb)
+            memory_info_msg = f"Allocated approx {data_size_mb}MB. String length: {len(allocated_memory_holder)}"
+        except Exception as e: memory_info_msg = f"Error memory: {str(e)}"
+    results['memory_info'] = memory_info_msg
 
-    metrics_exporter.init_app(app)
-    app.logger.info(f"FACTORY_V2_LOGGER: metrics_exporter.init_app(app) called.")
-    metrics_exporter.info('app_info_factory_v2', 'System Load App - Factory V2', version='1.1.2-gfactory_v2')
-    app.logger.info(f"FACTORY_V2_LOGGER: app.url_map after metrics_exporter.init_app: {str(app.url_map)}")
+    if mode == 'cpu_heavy' or force_cpu or (mode == 'balanced' and not (force_memory or force_io)):
+        try:
+            if cpu_algorithm == 'fibonacci':
+                fib_val = fibonacci_recursive(cpu_task_scale) if not(cpu_task_scale > 38 and iterations > 1) else \
+                            [fibonacci_iterative(cpu_task_scale + i) for i in range(iterations)][-1]
+                cpu_result_msg = f"Fibonacci({cpu_task_scale}): {fib_val}"
+            elif cpu_algorithm == 'prime_factorization':
+                last_factors = None 
+                for i in range(iterations): 
+                    num_to_factor = cpu_task_scale + i
+                    current_factors = prime_factorization(num_to_factor)
+                    if i == iterations -1 : 
+                        last_factors = {num_to_factor: current_factors}
+                cpu_result_msg = f"Prime factorization for {iterations} numbers around {cpu_task_scale}. Last: {last_factors}"
+            elif cpu_algorithm == 'hashing':
+                hash_val = perform_hashing("s"*(1024*256), iterations * (data_size_mb*4 if data_size_mb > 0 else 100))
+                cpu_result_msg = f"Hashed data. Hash: ...{hash_val[-8:]}"
+            elif cpu_algorithm == 'noop': time.sleep(0.001 * iterations); cpu_result_msg = "No-op CPU."
+        except Exception as e: cpu_result_msg = f"Error CPU ({cpu_algorithm}): {str(e)}"
+    results['cpu_work'] = cpu_result_msg
 
-    return app
+    if mode == 'io_heavy' or force_io or (mode == 'balanced' and not (force_cpu or force_memory)):
+        try: io_info_msg = perform_io(data_size_mb, iterations)
+        except Exception as e: results['io_info'] = f"Error I/O: {str(e)}"
+    results['io_info'] = io_info_msg
+    
+    internal_processing_duration = time.time() - internal_processing_start_time
+    CUSTOM_REQUEST_DURATION_HISTOGRAM.labels(path="/load").observe(internal_processing_duration)
 
-app = create_app()
+    results['duration_seconds'] = round(time.time() - request_start_time, 4)
+    results['parameters_used'] = {"mode":mode, "iterations":iterations, "data_size_mb":data_size_mb, \
+                                    "cpu_algorithm":cpu_algorithm, "cpu_task_scale":cpu_task_scale, \
+                                    "force_cpu":force_cpu, "force_memory":force_memory, "force_io":force_io}
+    if allocated_memory_holder: del allocated_memory_holder
+    return jsonify(results)
+
+
+@app.route('/manual_metrics_test')
+def manual_metrics_test():
+    app.logger.info("APP_LOGGER: /manual_metrics_test endpoint hit!")
+    try:
+        output = generate_latest(REGISTRY)
+        return Response(output, mimetype=CONTENT_TYPE_LATEST)
+    except Exception as e:
+        app.logger.error(f"APP_LOGGER: Error in /manual_metrics_test: {e}", exc_info=True)
+        return f"Error generating metrics in /manual_metrics_test: {e}", 500
 
 if __name__ == '__main__':
-    dev_app = create_app()
-    dev_app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)
