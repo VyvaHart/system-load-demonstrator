@@ -5,6 +5,7 @@ import time
 import hashlib
 import os
 import tempfile
+import logging
 
 
 def fibonacci_recursive(n):
@@ -48,26 +49,33 @@ def perform_io(size_mb, iterations):
             if os.path.exists(temp_path): os.remove(temp_path)
     return f"Wrote {written_bytes / (1024*1024):.2f} MB, Read {read_bytes_total / (1024*1024):.2f} MB in {io_iterations} cycle(s)."
 
+
 def create_app():
     app = Flask(__name__)
-    print(f"FACTORY_DEBUG: Flask app created by factory: {app}")
+    app.logger.setLevel(logging.DEBUG)
+    app.logger.info(f"FACTORY_LOGGER: Flask app created by factory: {app}")
 
-    CUSTOM_REQUESTS_COUNTER = Counter('custom_requests_total_app_factory', 'Total custom requests (factory)', ['path'])
-    CUSTOM_REQUEST_DURATION_HISTOGRAM = Histogram('custom_request_duration_seconds_app_factory', 'Custom request duration (factory)', ['path'])
+    metrics_exporter = GunicornPrometheusMetrics(app, group_by='url_rule', register_app_info=True)
+    app.logger.info(f"FACTORY_LOGGER: GunicornPrometheusMetrics initialized on app: {app}")
+    metrics_exporter.info('app_info_factory_log', 'System Load App - Factory Logger', version='1.1.0-gfactorylog')
+
+
+    CUSTOM_REQUESTS_COUNTER = Counter('custom_requests_total_app_log', 'Total custom requests (factory_log)', ['path'])
+    CUSTOM_REQUEST_DURATION_HISTOGRAM = Histogram('custom_request_duration_seconds_app_log', 'Custom request duration (factory_log)', ['path'])
 
     @app.route('/')
     def index():
         CUSTOM_REQUESTS_COUNTER.labels(path="/").inc()
         with CUSTOM_REQUEST_DURATION_HISTOGRAM.labels(path="/").time():
             pass
-        print("FACTORY_DEBUG: Route / hit")
+        app.logger.info("FACTORY_LOGGER: Route / hit")
         return render_template('index.html')
 
     @app.route('/load', methods=['GET'])
     def generate_load():
         CUSTOM_REQUESTS_COUNTER.labels(path="/load").inc()
         request_start_time = time.time()
-        print("FACTORY_DEBUG: Route /load hit")
+        app.logger.info("FACTORY_LOGGER: Route /load hit")
         mode = request.args.get('mode', 'balanced')
         iterations = int(request.args.get('iterations', '10'))
         data_size_mb = int(request.args.get('data_size_mb', '1'))
@@ -126,26 +134,21 @@ def create_app():
         if allocated_memory_holder: del allocated_memory_holder
         return jsonify(results)
 
+
     @app.route('/manual_metrics_test')
     def manual_metrics_test():
-        print("FACTORY_DEBUG: /manual_metrics_test endpoint hit!")
+        app.logger.info("FACTORY_LOGGER: /manual_metrics_test endpoint hit!")
         try:
             output = generate_latest(REGISTRY)
             return Response(output, mimetype=CONTENT_TYPE_LATEST)
         except Exception as e:
             return f"Error generating metrics in /manual_metrics_test: {e}", 500
 
-    GunicornPrometheusMetrics(app, group_by='url_rule', register_app_info=True).info(
-        'app_info_factory', 'System Load App Gunicorn Factory', version='1.0.9-gfactory'
-    )
-    print(f"FACTORY_DEBUG: GunicornPrometheusMetrics initialized on app: {app}")
-    print(f"FACTORY_DEBUG: app.url_map after metrics init: {str(app.url_map)}")
-
+    app.logger.info(f"FACTORY_LOGGER: app.url_map before returning app from factory: {str(app.url_map)}")
     return app
 
 app = create_app()
 
-
 if __name__ == '__main__':
-    app_for_dev_server = create_app()
-    app_for_dev_server.run(host='0.0.0.0', port=5000, debug=True)
+    dev_app = create_app()
+    dev_app.run(host='0.0.0.0', port=5000, debug=True)
