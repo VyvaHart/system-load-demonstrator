@@ -1,20 +1,22 @@
 from flask import Flask, request, jsonify, render_template, Response
-from prometheus_flask_exporter import PrometheusMetrics
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, REGISTRY, Counter
+from prometheus_flask_exporter.multiprocess import GunicornPrometheusMetrics
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, REGISTRY, Counter, Histogram
 import time
 import hashlib
 import os
 import tempfile
 
 app = Flask(__name__)
-print(f"FINAL_DEBUG: Flask app object created: {app}")
 
-metrics = PrometheusMetrics(app)
-print(f"FINAL_DEBUG: PrometheusMetrics(app) called directly.")
-metrics.info('app_info_final', 'System Load Application - Final Test', version='1.0.5-final')
-print(f"FINAL_DEBUG: app.url_map after metrics init: {str(app.url_map)}")
+metrics = GunicornPrometheusMetrics(app, group_by='url_rule')
 
-MY_CUSTOM_REQUESTS = Counter('my_custom_requests_final', 'Total custom requests final', ['path'])
+print(f"DEBUG: Flask app object created: {app}")
+print(f"DEBUG: GunicornPrometheusMetrics initialized on app: {app}")
+metrics.info('app_info_gunicorn', 'System Load Application - Gunicorn Metrics', version='1.0.7-gunicorn')
+print(f"DEBUG: app.url_map after GunicornPrometheusMetrics init: {str(app.url_map)}")
+
+CUSTOM_REQUESTS_COUNTER = Counter('custom_requests_total_app_g', 'Total custom requests for app routes (gunicorn)', ['path'])
+CUSTOM_REQUEST_DURATION_HISTOGRAM = Histogram('custom_request_duration_seconds_app_g', 'Custom request duration histogram (gunicorn)', ['path'])
 
 def fibonacci_recursive(n):
     if n <= 1: return n
@@ -59,14 +61,17 @@ def perform_io(size_mb, iterations):
 
 @app.route('/')
 def index():
-    MY_CUSTOM_REQUESTS.labels(path="/").inc()
-    print("FINAL_DEBUG: Route / hit")
+    CUSTOM_REQUESTS_COUNTER.labels(path="/").inc()
+    with CUSTOM_REQUEST_DURATION_HISTOGRAM.labels(path="/").time():
+        pass
+    print("DEBUG: Route / hit")
     return render_template('index.html')
 
 @app.route('/load', methods=['GET'])
 def generate_load():
-    MY_CUSTOM_REQUESTS.labels(path="/load").inc()
-    print("FINAL_DEBUG: Route /load hit")
+    CUSTOM_REQUESTS_COUNTER.labels(path="/load").inc()
+    request_start_time = time.time()
+    print("DEBUG: Route /load hit")
     mode = request.args.get('mode', 'balanced')
     iterations = int(request.args.get('iterations', '10'))
     data_size_mb = int(request.args.get('data_size_mb', '1'))
@@ -76,7 +81,7 @@ def generate_load():
     force_memory = request.args.get('force_memory') == 'true'
     force_io = request.args.get('force_io') == 'true'
     results = {}
-    start_time = time.time()
+    internal_processing_start_time = time.time()
     allocated_memory_holder = None
     io_info_msg = "I/O task not run."
     cpu_result_msg = "CPU task not run."
@@ -96,7 +101,7 @@ def generate_load():
                             [fibonacci_iterative(cpu_task_scale + i) for i in range(iterations)][-1]
                 cpu_result_msg = f"Fibonacci({cpu_task_scale}): {fib_val}"
             elif cpu_algorithm == 'prime_factorization':
-                last_factors = None
+                last_factors = None 
                 for i in range(iterations): 
                     num_to_factor = cpu_task_scale + i
                     current_factors = prime_factorization(num_to_factor)
@@ -114,18 +119,20 @@ def generate_load():
         try: io_info_msg = perform_io(data_size_mb, iterations)
         except Exception as e: results['io_info'] = f"Error I/O: {str(e)}"
     results['io_info'] = io_info_msg
+    
+    internal_processing_duration = time.time() - internal_processing_start_time
+    CUSTOM_REQUEST_DURATION_HISTOGRAM.labels(path="/load").observe(internal_processing_duration)
 
-    results['duration_seconds'] = round(time.time() - start_time, 4)
+    results['duration_seconds'] = round(time.time() - request_start_time, 4)
     results['parameters_used'] = {"mode":mode, "iterations":iterations, "data_size_mb":data_size_mb, \
                                     "cpu_algorithm":cpu_algorithm, "cpu_task_scale":cpu_task_scale, \
                                     "force_cpu":force_cpu, "force_memory":force_memory, "force_io":force_io}
     if allocated_memory_holder: del allocated_memory_holder
     return jsonify(results)
 
-
 @app.route('/manual_metrics_test')
 def manual_metrics_test():
-    print("FINAL_DEBUG: /manual_metrics_test endpoint hit!")
+    print("DEBUG: /manual_metrics_test endpoint hit!")
     try:
         output = generate_latest(REGISTRY)
         return Response(output, mimetype=CONTENT_TYPE_LATEST)
