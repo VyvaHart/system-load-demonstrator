@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, render_template, Response
-from prometheus_flask_exporter.multiprocess import GunicornPrometheusMetrics
+from prometheus_flask_exporter import PrometheusMetrics
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, REGISTRY, Counter, Histogram
 import time
 import hashlib
@@ -7,6 +7,10 @@ import os
 import tempfile
 import logging
 
+
+metrics_exporter = PrometheusMetrics(register_app_info=False)
+CUSTOM_REQUESTS_COUNTER = Counter('custom_requests_total_app_f2', 'Total custom requests (factory2)', ['path'])
+CUSTOM_REQUEST_DURATION_HISTOGRAM = Histogram('custom_request_duration_seconds_app_f2', 'Custom request duration (factory2)', ['path'])
 
 def fibonacci_recursive(n):
     if n <= 1: return n
@@ -53,29 +57,21 @@ def perform_io(size_mb, iterations):
 def create_app():
     app = Flask(__name__)
     app.logger.setLevel(logging.DEBUG)
-    app.logger.info(f"FACTORY_LOGGER: Flask app created by factory: {app}")
-
-    metrics_exporter = GunicornPrometheusMetrics(app, group_by='url_rule', register_app_info=True)
-    app.logger.info(f"FACTORY_LOGGER: GunicornPrometheusMetrics initialized on app: {app}")
-    metrics_exporter.info('app_info_factory_log', 'System Load App - Factory Logger', version='1.1.0-gfactorylog')
-
-
-    CUSTOM_REQUESTS_COUNTER = Counter('custom_requests_total_app_log', 'Total custom requests (factory_log)', ['path'])
-    CUSTOM_REQUEST_DURATION_HISTOGRAM = Histogram('custom_request_duration_seconds_app_log', 'Custom request duration (factory_log)', ['path'])
+    app.logger.info(f"FACTORY_V2_LOGGER: Flask app created by factory: {app}")
 
     @app.route('/')
     def index():
         CUSTOM_REQUESTS_COUNTER.labels(path="/").inc()
         with CUSTOM_REQUEST_DURATION_HISTOGRAM.labels(path="/").time():
             pass
-        app.logger.info("FACTORY_LOGGER: Route / hit")
+        app.logger.info("FACTORY_V2_LOGGER: Route / hit")
         return render_template('index.html')
 
     @app.route('/load', methods=['GET'])
     def generate_load():
         CUSTOM_REQUESTS_COUNTER.labels(path="/load").inc()
         request_start_time = time.time()
-        app.logger.info("FACTORY_LOGGER: Route /load hit")
+        app.logger.info("FACTORY_V2_LOGGER: Route /load hit")
         mode = request.args.get('mode', 'balanced')
         iterations = int(request.args.get('iterations', '10'))
         data_size_mb = int(request.args.get('data_size_mb', '1'))
@@ -134,17 +130,20 @@ def create_app():
         if allocated_memory_holder: del allocated_memory_holder
         return jsonify(results)
 
-
     @app.route('/manual_metrics_test')
     def manual_metrics_test():
-        app.logger.info("FACTORY_LOGGER: /manual_metrics_test endpoint hit!")
+        app.logger.info("FACTORY_V2_LOGGER: /manual_metrics_test endpoint hit!")
         try:
             output = generate_latest(REGISTRY)
             return Response(output, mimetype=CONTENT_TYPE_LATEST)
         except Exception as e:
             return f"Error generating metrics in /manual_metrics_test: {e}", 500
 
-    app.logger.info(f"FACTORY_LOGGER: app.url_map before returning app from factory: {str(app.url_map)}")
+    metrics_exporter.init_app(app)
+    app.logger.info(f"FACTORY_V2_LOGGER: metrics_exporter.init_app(app) called.")
+    metrics_exporter.info('app_info_factory_v2', 'System Load App - Factory V2', version='1.1.2-gfactory_v2')
+    app.logger.info(f"FACTORY_V2_LOGGER: app.url_map after metrics_exporter.init_app: {str(app.url_map)}")
+
     return app
 
 app = create_app()
