@@ -17,12 +17,18 @@ app.logger.setLevel(logging.DEBUG)
 app.logger.info(f"APP_LOGGER: Flask app object created: {app}")
 
 try:
-    metrics = PrometheusMetrics(app, group_by='url_rule', register_app_info=True)
-    app.logger.info(f"APP_LOGGER: PrometheusMetrics(app) initialized successfully.")
-    metrics.info('app_info_direct_final', 'System Load App - Direct Init Final', version='1.1.3-directfinal')
-    app.logger.info(f"APP_LOGGER: app.url_map after metrics init: {str(app.url_map)}")
+    registry = CollectorRegistry()
+    multiprocess.MultiProcessCollector(registry)
+    app.logger.info("APP_LOGGER: Multiprocess CollectorRegistry initialized.")
 except Exception as e:
-    app.logger.error(f"APP_LOGGER: ERROR during PrometheusMetrics(app) initialization: {e}", exc_info=True)
+    app.logger.error(f"APP_LOGGER: ERROR initializing multiprocess collector: {e}", exc_info=True)
+
+try:
+    metrics = PrometheusMetrics(app, group_by='url_rule', register_app_info=True, registry=registry)
+    metrics.info('app_info_direct_final', 'System Load App - Direct Init Final', version='1.1.3-directfinal')
+    app.logger.info(f"APP_LOGGER: PrometheusMetrics with multiprocess registry initialized.")
+except Exception as e:
+    app.logger.error(f"APP_LOGGER: ERROR initializing PrometheusMetrics: {e}", exc_info=True)
 
 CUSTOM_REQUESTS_COUNTER = Counter('custom_requests_total_app_direct', 'Total custom requests (direct_init)', ['path'])
 CUSTOM_REQUEST_DURATION_HISTOGRAM = Histogram('custom_request_duration_seconds_app_direct', 'Custom request duration (direct_init)', ['path'])

@@ -28,4 +28,4 @@ spec:
             - containerPort: 5000
           env:
             - name: prometheus_multiproc_dir
-              value: /tmp
+              value: /tmp/prometheus_multiproc_dir
