@@ -1,5 +1,4 @@
 import os
-# Multiprocess directory is defined EARLY before Prometheus imports
 if 'prometheus_multiproc_dir' not in os.environ:
     os.environ['prometheus_multiproc_dir'] = '/tmp'
 
@@ -11,6 +10,19 @@ import time
 import hashlib
 import tempfile
 import logging
+
+
+def clear_prometheus_multiproc_dir():
+    dir_path = os.environ.get("PROMETHEUS_MULTIPROC_DIR", "/tmp/prometheus_multiproc_dir")
+    if os.path.exists(dir_path):
+        for filename in os.listdir(dir_path):
+            file_path = os.path.join(dir_path, filename)
+            try:
+                os.unlink(file_path)
+            except Exception as e:
+                print(f"Error deleting {file_path}: {e}")
+
+clear_prometheus_multiproc_dir()
 
 app = Flask(__name__)
 app.logger.setLevel(logging.DEBUG)
