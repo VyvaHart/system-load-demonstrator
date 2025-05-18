@@ -1,10 +1,14 @@
+import os
+# Multiprocess directory is defined EARLY before Prometheus imports
+if 'prometheus_multiproc_dir' not in os.environ:
+    os.environ['prometheus_multiproc_dir'] = '/tmp'
+
 from flask import Flask, request, jsonify, render_template, Response
 from prometheus_flask_exporter import PrometheusMetrics
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Histogram, multiprocess
 
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, REGISTRY, Counter, Histogram
 import time
 import hashlib
-import os
 import tempfile
 import logging
 
@@ -20,17 +24,18 @@ try:
 except Exception as e:
     app.logger.error(f"APP_LOGGER: ERROR during PrometheusMetrics(app) initialization: {e}", exc_info=True)
 
-# Custom Metrics
 CUSTOM_REQUESTS_COUNTER = Counter('custom_requests_total_app_direct', 'Total custom requests (direct_init)', ['path'])
 CUSTOM_REQUEST_DURATION_HISTOGRAM = Histogram('custom_request_duration_seconds_app_direct', 'Custom request duration (direct_init)', ['path'])
 
 def fibonacci_recursive(n):
     if n <= 1: return n
     else: return fibonacci_recursive(n - 1) + fibonacci_recursive(n - 2)
+
 def fibonacci_iterative(n):
     a, b = 0, 1
     for _ in range(n): a, b = b, a + b
     return a
+
 def prime_factorization(n):
     factors, d, temp_n = [], 2, n
     while d * d <= temp_n:
@@ -38,12 +43,15 @@ def prime_factorization(n):
         d += 1
     if temp_n > 1: factors.append(temp_n)
     return factors
+
 def perform_hashing(data, iterations):
     s, data_bytes = hashlib.sha256(), data.encode('utf-8') if isinstance(data, str) else data
     for _ in range(iterations): s.update(data_bytes)
     return s.hexdigest()
+
 def consume_memory(size_mb):
     return 'x' * (size_mb * 1024 * 1024)
+
 def perform_io(size_mb, iterations):
     data_chunk, bytes_to_write, written_bytes, read_bytes_total = os.urandom(1024*1024), size_mb*1024*1024, 0, 0
     io_iterations = max(1, iterations)
@@ -64,7 +72,6 @@ def perform_io(size_mb, iterations):
         finally:
             if os.path.exists(temp_path): os.remove(temp_path)
     return f"Wrote {written_bytes / (1024*1024):.2f} MB, Read {read_bytes_total / (1024*1024):.2f} MB in {io_iterations} cycle(s)."
-
 
 @app.route('/')
 def index():
@@ -126,7 +133,7 @@ def generate_load():
         try: io_info_msg = perform_io(data_size_mb, iterations)
         except Exception as e: results['io_info'] = f"Error I/O: {str(e)}"
     results['io_info'] = io_info_msg
-    
+
     internal_processing_duration = time.time() - internal_processing_start_time
     CUSTOM_REQUEST_DURATION_HISTOGRAM.labels(path="/load").observe(internal_processing_duration)
 
@@ -137,12 +144,13 @@ def generate_load():
     if allocated_memory_holder: del allocated_memory_holder
     return jsonify(results)
 
-
 @app.route('/manual_metrics_test')
 def manual_metrics_test():
     app.logger.info("APP_LOGGER: /manual_metrics_test endpoint hit!")
     try:
-        output = generate_latest(REGISTRY)
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry)
+        output = generate_latest(registry)
         return Response(output, mimetype=CONTENT_TYPE_LATEST)
     except Exception as e:
         app.logger.error(f"APP_LOGGER: Error in /manual_metrics_test: {e}", exc_info=True)
