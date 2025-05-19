@@ -1,0 +1,19 @@
+# k8s/servicemonitor-dev.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: load-shifter-dev-monitor
+  namespace: default
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: system-load-demonstrator-dev
+  namespaceSelector:
+    matchNames:
+      - default
+  endpoints:
+  - port: http-metrics
+    path: /metrics
+    interval: 30s

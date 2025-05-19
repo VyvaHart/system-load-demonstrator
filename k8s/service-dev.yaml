@@ -2,12 +2,15 @@ apiVersion: v1
 kind: Service
 metadata:
   name: load-shifter-dev-service
+  namespace: default
   labels:
-    app: system-load-demonstrator
+    app: system-load-demonstrator-dev
+    release: prometheus
 spec:
   selector:
     app: system-load-demonstrator-dev
   ports:
+    - name: http-metrics
     - protocol: TCP
       port: 80 # Port the service listens on within the cluster
       targetPort: 5000 # Flask app port
