@@ -29,3 +29,10 @@ spec:
           env:
             - name: prometheus_multiproc_dir
               value: /tmp/prometheus_multiproc_dir
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
