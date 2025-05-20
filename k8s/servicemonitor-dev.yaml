@@ -17,3 +17,6 @@ spec:
   - port: http-metrics
     path: /metrics
     interval: 30s
+    relabelings:
+      - sourceLabels: [__meta_kubernetes_service_label_app]
+        targetLabel: app
