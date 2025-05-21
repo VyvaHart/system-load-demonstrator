@@ -100,6 +100,7 @@ def index():
     REQUESTS_COUNTER.labels(path="/").inc()
     with REQUEST_DURATION_HISTOGRAM.labels(path="/").time():
         pass
+    
     app.logger.info("APP_LOGGER: Route / hit")
     return render_template('index.html')
 
