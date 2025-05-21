@@ -21,8 +21,18 @@ spec:
       imagePullSecrets:
       - name: ghcr-secret
       containers:
-        - name: system-load-shifter
+        - name: system-load-shifter-container
           image: ghcr.io/vyvahart/system-load-demonstrator:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 5000
-          imagePullPolicy: Always
+          env:
+            - name: prometheus_multiproc_dir
+              value: /tmp/prometheus_multiproc_dir
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"

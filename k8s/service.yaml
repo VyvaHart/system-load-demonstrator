@@ -4,11 +4,13 @@ metadata:
   name: load-shifter-service
   labels:
     app: system-load-demonstrator
+    release: prometheus
 spec:
   selector:
     app: system-load-demonstrator
   ports:
-    - protocol: TCP
+    - name: http-metrics
+      protocol: TCP
       port: 80 # Port the service listens on within the cluster
       targetPort: 5000 # Flask app port
   type: NodePort
