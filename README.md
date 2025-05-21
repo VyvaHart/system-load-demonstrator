@@ -14,6 +14,13 @@ A Flask web application to generate and visualize configurable system load (CPU,
 *   **Containerized & Kubernetes Ready:** Dockerfile and Kubernetes manifests for Minikube.
 *   **CI/CD:** GitHub Actions for building and pushing images to GHCR.
 
+<table>
+  <tr>
+    <td align="center"><img src="https://github.com/VyvaHart/system-load-demonstrator/blob/main/assets/app_metrics.jpg" width="100%"></td>
+    <td align="center"><img src="https://github.com/VyvaHart/system-load-demonstrator/blob/main/assets/node_metrics.jpg" width="100%"></td>
+  </tr>
+</table>
+
 ## Tech Stack
 
 *   **Application:** Python 3.11, Flask, Gunicorn
