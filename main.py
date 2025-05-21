@@ -4,7 +4,7 @@ if 'prometheus_multiproc_dir' not in os.environ:
 
 from flask import Flask, request, jsonify, render_template, Response
 from prometheus_flask_exporter import PrometheusMetrics
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Histogram, multiprocess
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Histogram, Gauge, multiprocess
 
 import time
 import hashlib
@@ -42,8 +42,12 @@ try:
 except Exception as e:
     app.logger.error(f"APP_LOGGER: ERROR initializing PrometheusMetrics: {e}", exc_info=True)
 
-CUSTOM_REQUESTS_COUNTER = Counter('custom_requests_total_app_direct', 'Total custom requests (direct_init)', ['path'])
-CUSTOM_REQUEST_DURATION_HISTOGRAM = Histogram('custom_request_duration_seconds_app_direct', 'Custom request duration (direct_init)', ['path'])
+REQUESTS_COUNTER = Counter('custom_requests_total_app_direct', 'Total custom requests (direct_init)', ['path'])
+REQUEST_DURATION_HISTOGRAM = Histogram('custom_request_duration_seconds_app_direct', 'Custom request duration (direct_init)', ['path'])
+IO_WRITE_MB = Gauge('app_io_written_mb', 'Disk written (MB) per /load request', ['path'])
+IO_READ_MB = Gauge('app_io_read_mb', 'Disk read (MB) per /load request', ['path'])
+CPU_TIME = Gauge('app_cpu_exec_time_seconds', 'CPU task execution time in seconds', ['path', 'algorithm'])
+MEMORY_ALLOC_MB = Gauge('app_memory_allocated_mb', 'Memory allocated in MB per request', ['path'])
 
 def fibonacci_recursive(n):
     if n <= 1: return n
@@ -93,15 +97,15 @@ def perform_io(size_mb, iterations):
 
 @app.route('/')
 def index():
-    CUSTOM_REQUESTS_COUNTER.labels(path="/").inc()
-    with CUSTOM_REQUEST_DURATION_HISTOGRAM.labels(path="/").time():
+    REQUESTS_COUNTER.labels(path="/").inc()
+    with REQUEST_DURATION_HISTOGRAM.labels(path="/").time():
         pass
     app.logger.info("APP_LOGGER: Route / hit")
     return render_template('index.html')
 
 @app.route('/load', methods=['GET'])
 def generate_load():
-    CUSTOM_REQUESTS_COUNTER.labels(path="/load").inc()
+    REQUESTS_COUNTER.labels(path="/load").inc()
     request_start_time = time.time()
     app.logger.info("APP_LOGGER: Route /load hit")
     mode = request.args.get('mode', 'balanced')
@@ -118,6 +122,8 @@ def generate_load():
     io_info_msg = "I/O task not run."
     cpu_result_msg = "CPU task not run."
     memory_info_msg = "Memory task not run."
+    
+    MEMORY_ALLOC_MB.labels(path="/load").set(data_size_mb)
 
     if mode == 'memory_heavy' or force_memory or (mode == 'balanced' and not (force_cpu or force_io)):
         try:
@@ -128,6 +134,7 @@ def generate_load():
 
     if mode == 'cpu_heavy' or force_cpu or (mode == 'balanced' and not (force_memory or force_io)):
         try:
+            cpu_start = time.time()
             if cpu_algorithm == 'fibonacci':
                 fib_val = fibonacci_recursive(cpu_task_scale) if not(cpu_task_scale > 38 and iterations > 1) else \
                             [fibonacci_iterative(cpu_task_scale + i) for i in range(iterations)][-1]
@@ -144,6 +151,8 @@ def generate_load():
                 hash_val = perform_hashing("s"*(1024*256), iterations * (data_size_mb*4 if data_size_mb > 0 else 100))
                 cpu_result_msg = f"Hashed data. Hash: ...{hash_val[-8:]}"
             elif cpu_algorithm == 'noop': time.sleep(0.001 * iterations); cpu_result_msg = "No-op CPU."
+            cpu_exec_time = time.time() - cpu_start
+            CPU_TIME.labels(path="/load", algorithm=cpu_algorithm).set(cpu_exec_time)
         except Exception as e: cpu_result_msg = f"Error CPU ({cpu_algorithm}): {str(e)}"
     results['cpu_work'] = cpu_result_msg
 
@@ -151,9 +160,19 @@ def generate_load():
         try: io_info_msg = perform_io(data_size_mb, iterations)
         except Exception as e: results['io_info'] = f"Error I/O: {str(e)}"
     results['io_info'] = io_info_msg
+    
+    try:
+        if "Wrote" in io_info_msg:
+            parts = io_info_msg.split()
+            written = float(parts[1])
+            read = float(parts[4])
+            IO_WRITE_MB.labels(path="/load").set(written)
+            IO_READ_MB.labels(path="/load").set(read)
+    except Exception as e:
+        app.logger.warning(f"Failed to parse I/O metrics: {e}")
 
     internal_processing_duration = time.time() - internal_processing_start_time
-    CUSTOM_REQUEST_DURATION_HISTOGRAM.labels(path="/load").observe(internal_processing_duration)
+    REQUEST_DURATION_HISTOGRAM.labels(path="/load").observe(internal_processing_duration)
 
     results['duration_seconds'] = round(time.time() - request_start_time, 4)
     results['parameters_used'] = {"mode":mode, "iterations":iterations, "data_size_mb":data_size_mb, \
